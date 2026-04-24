@@ -1,10 +1,17 @@
 import os
 import discord
 import aiohttp
-from decimal import Decimal
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# Try these models in order (first one that works wins)
+MODELS = [
+    "anthropic/claude-3-haiku",
+    "google/gemini-1.5-flash", 
+    "meta-llama/llama-3-8b-instruct",
+    "mistralai/mistral-7b-instruct"
+]
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -40,30 +47,35 @@ async def call_ai(prompt):
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
     
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://marksagent.com",
-        "X-Title": "MarksAgent"
-    }
-    payload = {
-        "model": "anthropic/claude-3-haiku",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 500
-    }
+    # Try each model until one works
+    for model in MODELS:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://marksagent.com",
+            "X-Title": "MarksAgent"
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 500
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        return {"success": True, "content": content}
+                    else:
+                        # Try next model
+                        continue
+        except:
+            continue
     
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    return {"success": True, "content": content}
-                else:
-                    return {"success": False, "error": f"API error: {resp.status}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return {"success": False, "error": "All models failed"}
 
 if __name__ == "__main__":
     if not TOKEN:
