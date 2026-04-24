@@ -5,7 +5,8 @@ An AI-powered business advisor that helps with brainstorming, analysis, and plan
 ## Features
 
 - 🧠 **Brainstorming** - Generate business ideas
-- 📊 **Analysis** - Market and competitive analysis
+- 📊 **Analysis** - Market a
+nd competitive analysis
 - 🗺️ **Planning** - Strategic planning and roadmaps
 - 💬 **Natural Chat** - Talk to AI naturally
 - 💰 **Budget Control** - Daily spending limits
@@ -23,15 +24,15 @@ An AI-powered business advisor that helps with brainstorming, analysis, and plan
 ## How to Use
 
 Just chat naturally in Discord:
-ust chat naturally in Discord:
+
 Brainstorm startup ideas in the AI space
 → Bot generates 5 business ideas
 Analyze the market for AI-powered project management
 → Bot provides market analysis
 Plan how to launch my consulting business
-→ Bot creates a step-by-step roadmapprioritising actual tangibility
+→ Bot creates a step-by-step roadmap prioritising actual tangibility
 What should my first hire be?
-→ Bot gives practical advce prioritised on tangible results only
+→ Bot gives practical advice prioritized on tangible results only
 
 ## Setup
 
@@ -48,3 +49,4 @@ See SETUP.md for detailed installation.
 ---
 
 Built with safety first. 🔒
+
