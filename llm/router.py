@@ -117,3 +117,10 @@ class LLMRouter:
                 'success': False,
                 'error': str(e)
             }
+
+import time
+
+print("Bot starting...")
+
+while True:
+    time.sleep(60)
