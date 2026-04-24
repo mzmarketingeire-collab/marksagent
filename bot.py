@@ -48,7 +48,7 @@ async def call_ai(prompt):
         "X-Title": "MarksAgent"
     }
     payload = {
-        "model": "google/gemini-2.0-flash-exp",
+        "model": "google/gemini-1.5-flash",
         "messages": [{"role": "user", "content": prompt}]
     }
     
