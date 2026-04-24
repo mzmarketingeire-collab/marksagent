@@ -48,8 +48,9 @@ async def call_ai(prompt):
         "X-Title": "MarksAgent"
     }
     payload = {
-        "model": "google/gemini-1.5-flash",
-        "messages": [{"role": "user", "content": prompt}]
+        "model": "google/gemini-2.0-flash-exp",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 500
     }
     
     try:
