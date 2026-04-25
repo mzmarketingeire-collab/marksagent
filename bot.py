@@ -156,7 +156,7 @@ def cleanup_conversation_history():
                 if msg.get("role") == "user":
                     key = f"ltm_auto_{len(long_term_memory)}"
                     long_term_memory[key] = msg.get("content", "")
-                    asyncio.create_task(save_memory(key, msg.get("content", "")))
+                    # Save to Supabase (async won't work here, skip for now)
     
     conversation_history = [
         msg for msg in conversation_history
