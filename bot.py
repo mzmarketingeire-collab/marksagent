@@ -320,7 +320,6 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
     
     # Stats / analytics (natural language)
     if any(phrase in lower for phrase in ["stats", "usage", "how many", "what have you done", "api usage", "how much have you used", "how much cost"]):
-        global daily_usage
         today = time.strftime("%Y-%m-%d")
         if daily_usage["date"] != today:
             daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
@@ -436,7 +435,6 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
         return
 
     if lower.startswith("!stats"):
-        global daily_usage
         # Show API usage stats
         today = time.strftime("%Y-%m-%d")
         if daily_usage["date"] != today:
