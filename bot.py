@@ -66,6 +66,7 @@ async def load_memory():
         pass
 
 async def save_memory(key, value):
+    global memory
     if not SUPABASE_URL or not SUPABASE_KEY:
         return
     try:
@@ -80,6 +81,7 @@ async def save_memory(key, value):
         pass
 
 async def call_ai(prompt):
+    global conversation_history
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
     
