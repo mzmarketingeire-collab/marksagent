@@ -380,3 +380,140 @@ async def call_google(prompt):
         return {"success": False, "error": f"Exception in call_google: {str(e)}"}
 
 # --- IMPORTANT: Ensure this is the COMPLETE call_google function ---
+
+# === OPENROUTER API CALL ===
+async def call_openrouter(prompt, model_id="anthropic/claude-3-haiku"):
+    """Calls the OpenRouter API with the specified model."""
+    global conversation_history, daily_budget, current_model, free_usage
+
+    if not OPENROUTER_KEY:
+        return {"success": False, "error": "OpenRouter API key not set"}
+
+    # Find the internal model key from the model_id
+    model_key = None
+    for key, config in MODELS.items():
+        if config.get("id") == model_id:
+            model_key = key
+            break
+    if not model_key:
+        model_key = model_id  # Fallback to using model_id directly
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://marksagent.github.io",
+        "X-Title": "Mark's Business Bot"
+    }
+    
+    # Build messages for OpenRouter (uses OpenAI-compatible format)
+    messages = [{"role": "user", "content": prompt}]
+    
+    # Add conversation history for context (last 5 turns)
+    if conversation_history:
+        recent = conversation_history[-10:]  # Last 10 messages
+        for msg in recent:
+            if msg.get("role") in ["user", "assistant"]:
+                messages.insert(0, {"role": msg["role"], "content": msg.get("content", "")})
+
+    payload = {
+        "model": model_id,
+        "messages": messages,
+        "max_tokens": 1500
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=60) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    # Extract content from OpenRouter response
+                    content = (
+                        data.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                    )
+
+                    if not content:
+                        return {"success": False, "error": "OpenRouter returned empty content"}
+
+                    # Update tracking
+                    current_model = model_key
+                    cost = MODELS.get(model_key, {}).get("cost", 0)
+                    daily_budget["spent"] += cost
+                    daily_budget["calls"] += 1
+                    
+                    # Track free usage
+                    free_limit = MODELS.get(model_key, {}).get("free_limit", 0)
+                    if free_limit > 0:
+                        free_usage[model_key] = free_usage.get(model_key, 0) + 1
+                    
+                    # Add to history
+                    conversation_history.append({"role": "user", "content": prompt, "timestamp": time.time()})
+                    conversation_history.append({"role": "assistant", "content": content, "timestamp": time.time()})
+
+                    return {"success": True, "content": content, "model": model_key, "cost": cost}
+                else:
+                    error_text = await resp.text()
+                    print(f"OpenRouter error: {resp.status} - {error_text}")
+                    return {"success": False, "error": f"OpenRouter error ({resp.status}): {error_text}"}
+    except Exception as e:
+        print(f"Exception in call_openrouter: {str(e)}")
+        return {"success": False, "error": f"Exception: {str(e)}"}
+
+# === MAIN MESSAGE HANDLER ===
+async def handle_message(message):
+    """Main handler for incoming Discord messages."""
+    global current_model
+    
+    if message.author == client.user:
+        return
+    
+    # Ignore bot messages
+    if message.author.bot:
+        return
+    
+    # Get the prompt
+    prompt = message.content
+    
+    # Classify the task
+    task_type = classify_task(prompt)
+    
+    # Select best model (force free = True to avoid paid calls)
+    model_key = get_best_model(task_type, force_free=False)  # Allow paid fallback
+    
+    print(f"Selected model: {model_key} for task: {task_type}")
+    
+    # Route to the appropriate API
+    if model_key == "google":
+        result = await call_google(prompt)
+    elif model_key in ["gemini-flash", "gemma", "haiku", "llama"]:
+        # All these use OpenRouter
+        model_id = MODELS.get(model_key, {}).get("id", model_key)
+        result = await call_openrouter(prompt, model_id)
+    else:
+        # Fallback to Google
+        result = await call_google(prompt)
+    
+    if result.get("success"):
+        await message.reply(result["content"])
+    else:
+        await message.reply(f"Sorry, I encountered an error: {result.get('error')}")
+
+# === DISCORD BOT SETUP ===
+@client.event
+async def on_message(message):
+    await handle_message(message)
+
+@client.event
+async def on_ready():
+    print(f"Bot is ready! Logged in as {client.user}")
+
+# === RUN BOT ===
+if __name__ == "__main__":
+    if TOKEN:
+        print("Starting bot...")
+        client.run(TOKEN)
+    else:
+        print("ERROR: DISCORD_TOKEN environment variable not set!")
