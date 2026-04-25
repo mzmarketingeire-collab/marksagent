@@ -40,6 +40,7 @@ Remember: You're working with a business owner who values efficiency and results
 MODELS = {
     "haiku": {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "desc": "Fast & concise"},
     "flash": {"id": "google/gemini-1.5-flash", "name": "Gemini Flash", "desc": "Quick & smart"},
+    "gemma": {"id": "google/gemma-2-9b-instruct", "name": "Gemma 2", "desc": "Google's latest"},
     "llama": {"id": "meta-llama/llama-3-8b-instruct", "name": "Llama 3", "desc": "Open source"},
     "mistral": {"id": "mistralai/mistral-7b-instruct", "name": "Mistral", "desc": "Balanced"},
     "sonar": {"id": "perplexity/sonar-small-online", "name": "Sonar", "desc": "Web search"}
@@ -76,8 +77,9 @@ long_term_memory = {}  # Persists across conversations
 daily_usage = {"calls": 0, "date": time.strftime("%Y-%m-%d"), "cost_estimate": 0.0}
 # Approximate costs per model (per 1K tokens)
 MODEL_COSTS = {
-    "haiku": 0.0008,   # $0.0008 per 1K input
-    "flash": 0.00035,  # $0.00035 per 1K input  
+    "haiku": 0.0008,
+    "flash": 0.00035,
+    "gemma": 0.0006,
     "llama": 0.0002,
     "mistral": 0.00024,
     "sonar": 0.001
