@@ -517,3 +517,22 @@ if __name__ == "__main__":
         client.run(TOKEN)
     else:
         print("ERROR: DISCORD_TOKEN environment variable not set!")
+
+# === HELPER: Send response safely to Discord ===
+async def send_response(message, content):
+    """Safely send response, handling Discord's 2000 char limit."""
+    if not content:
+        await message.reply("I received an empty response. Please try again.")
+        return
+    
+    # Truncate if too long
+    if len(content) > 1900:  # Leave room for "..." and formatting
+        content = content[:1900] + "\n\n...[truncated]"
+    
+    try:
+        await message.reply(content)
+    except Exception as e:
+        print(f"Discord send error: {e}")
+        await message.reply(f"Error sending response: {str(e)[:100]}")
+
+# Update handle_message to use safe send
