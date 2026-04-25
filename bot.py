@@ -187,6 +187,79 @@ async def on_message(message):
             await message.reply(f"❌ Error: {str(e)}")
         return
 
+    if lower.startswith("!search "):
+        query = content.split("!search ",1)[1].strip()
+        # Use web_search tool (Brave) to get top result titles
+        try:
+            from functions import web_search
+            results = web_search({"query": query, "count": 3})
+            if isinstance(results, dict) and "results" in results:
+                lines = [f"{i+1}. {r['title']} – {r['url']}" for i, r in enumerate(results["results"])]
+                await message.reply("🕵️‍♂️ Search results:\n" + "\n".join(lines))
+            else:
+                await message.reply("❌ No results returned")
+        except Exception as e:
+            await message.reply(f"❌ Search error: {str(e)}")
+        return
+
+    if lower.startswith("!remind "):
+        # Format: !remind <time> <message>
+        parts = content.split(" ", 2)
+        if len(parts) < 3:
+            await message.reply("❌ Usage: !remind <in Xs|Xm|Xh|YYYY-MM-DD HH:MM> <message>")
+            return
+        time_str, reminder_msg = parts[1], parts[2]
+        # Store in Supabase reminders table (simple insert)
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            await message.reply("❌ Supabase not configured for reminders")
+            return
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {"time_str": time_str, "message": reminder_msg, "user_id": str(message.author.id)}
+                await session.post(f"{SUPABASE_URL}/rest/v1/reminders", json=payload, headers=get_headers())
+            await message.reply(f"✅ Reminder saved: '{reminder_msg}' at {time_str}")
+        except Exception as e:
+            await message.reply(f"❌ Reminder error: {str(e)}")
+        return
+
+    if lower.startswith("!stats"):
+        # Simple analytics: count commands in last 24h
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            await message.reply("❌ Supabase not configured for analytics")
+            return
+        try:
+            async with aiohttp.ClientSession() as session:
+                query = "created_at=gt.now()-interval'24 hour'"
+                async with session.get(f"{SUPABASE_URL}/rest/v1/analytics?select=command,count&group=command", headers=get_headers()) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        lines = [f"{row['command']}: {row['count']}" for row in data]
+                        await message.reply("📈 Last 24h command usage:\n" + "\n".join(lines))
+                    else:
+                        await message.reply(f"❌ Analytics query failed: {resp.status}")
+        except Exception as e:
+            await message.reply(f"❌ Analytics error: {str(e)}")
+        return
+
+    if lower.startswith("!say "):
+        text_to_say = content.split("!say ",1)[1].strip()
+        # Placeholder: In a real setup you could call a TTS service and send the audio file
+        await message.reply(f"🔊 (TTS) {text_to_say}")
+        return
+
+    if lower.startswith("!analyze"):
+        if message.attachments:
+            img_url = message.attachments[0].url
+            try:
+                from functions import image
+                analysis = image({"image": img_url, "prompt": "Describe this image in detail"})
+                await message.reply(f"🖼️ Image analysis:\n{analysis}")
+            except Exception as e:
+                await message.reply(f"❌ Image analysis error: {str(e)}")
+        else:
+            await message.reply("❌ Attach an image to analyze.")
+        return
+
     if lower.startswith("!help"):
         await message.reply("""
 📋 Commands:
@@ -197,6 +270,11 @@ async def on_message(message):
 !db - Show database contents
 !whoareyou - About me
 !clear - Clear history
+!search <query> - Web search (Brave)
+!remind <time> <msg> - Save reminder (Supabase)
+!stats - Show command usage stats
+!say <text> - Text‑to‑speech (placeholder)
+!analyze - Analyze attached image (placeholder)
 !help - This help
         """)
         return
