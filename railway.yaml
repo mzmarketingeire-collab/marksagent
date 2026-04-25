@@ -1,0 +1,58 @@
+app:
+  name: "Business Bot"
+  version: "1.0.0"
+  environment: ${ENVIRONMENT:-production}
+
+safety:
+  approval_required: ${APPROVAL_REQUIRED:-true}
+  daily_budget_eur: ${DAILY_BUDGET_EUR:-1.0}
+  audit_enabled: true
+  audit_retention_days: 7
+  data_retention_hours: 24
+
+llm_routing:
+  brainstorm:
+    primary: "google" # Prioritize free Google Gemini
+    fallback: "minimax" # Fallback to MiniMax if Google isn't available/limit reached
+    cost_limit: 0.0 # Limit for this task type (0 means only free models)
+    max_tokens: 1000
+
+  analysis:
+    primary: "gemini-flash" # Use Gemini Flash for analysis (often free via OpenRouter)
+    fallback: "google" # Fallback to Google if Gemini Flash isn't available
+    cost_limit: 0.20
+    max_tokens: 1500
+
+  writing:
+    primary: "llama" # Example: Use Llama 3 (check cost/limits)
+    fallback: "haiku" # Fallback to Claude Haiku if Llama fails or is unavailable
+    cost_limit: 0.15
+    max_tokens: 1000
+  
+  planning:
+    primary: "google" # Primary Google for planning
+    fallback: "gemini-flash" # Fallback to Gemini Flash
+    cost_limit: 0.10
+    max_tokens: 800
+
+models:
+  # List models that are generally free or have generous free tiers
+  free_tier:
+    - "google"
+    - "gemini-flash" # Often free via OpenRouter within limits
+    - "gemma"
+    - "minimax"
+    - "llama" # Check specific free tier limits
+
+  # List models you consider 'cheap' or 'paid', used as fallbacks if free tiers are exhausted or not suitable
+  cheap_tier:
+    - "anthropic/claude-3-haiku" # Paid via OpenRouter
+    # Add other paid models here if you use them
+
+discord:
+  approval_channel: "bot-approvals"
+  log_channel: "bot-logs"
+
+database:
+  auto_delete_drafts_after_hours: 24
+  auto_delete_logs_after_days: 7
