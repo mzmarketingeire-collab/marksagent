@@ -10,13 +10,19 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Who am I?
-SYSTEM_PROMPT = """You are Mark's AI assistant. Mark works in construction recruitment in New Zealand - he places quantity surveyors, estimators, and commercial managers into roles with tier 1 contractors.
+SYSTEM_PROMPT = """You are a versatile business AI assistant. You help with multiple businesses and tasks, including:
+
+- Construction recruitment (quantity surveyors, estimators, commercial managers)
+- General business advice, strategy, and networking
+- Content creation, marketing, and LinkedIn posts
+- Client management and candidate placement
+- Sales, lead generation, and business development
 
 Your purpose:
-- Help Mark with his recruitment business
 - Be helpful, friendly, and professional
+- Adapt to the topic the user brings up
 - Remember important details about clients, candidates, and conversations
-- Assist with LinkedIn content, business ideas, and networking
+- Assist with whatever business need arises
 - Have casual conversation - be natural and engaging
 
 You have memory of previous conversations. Use it to provide personalized responses.
@@ -194,9 +200,57 @@ async def on_message(message):
 - "What do you remember?" to see memory
 - "Remember this..." to save something
 - "Who are you?" to learn about me
+- "search for..." to search the web
+- "remind me to..." to set a reminder
 
 Or use commands: !models, !use <model>, !memory, !remember <info>, !help
         """)
+        return
+    
+    # === NATURAL LANGUAGE ACTIONS (no !, no commands) ===
+    
+    # Search
+    if any(phrase in lower for phrase in ["search for", "look up", "find information about", "what's the latest on", "what about"]):
+        query = content
+        for prefix in ["search for ", "look up ", "find information about ", "what's the latest on ", "what about "]:
+            if prefix in lower:
+                query = content.split(prefix, 1)[1].strip()
+                break
+        try:
+            import requests
+            # Simple Brave search
+            resp = requests.get(f"https://api.search.brave.com/res/v1/web_search?q={query}&count=3", headers={"Accept": "application/json"})
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("web", {}).get("results", [])
+                if results:
+                    lines = [f"{i+1}. {r.get('title','No title')} – {r.get('url','')}" for i, r in enumerate(results[:3])]
+                    await message.reply("🕵️‍♂️ Here's what I found:\n" + "\n".join(lines))
+                else:
+                    await message.reply("❌ No results found")
+            else:
+                await message.reply("❌ Search unavailable right now")
+        except Exception as e:
+            await message.reply(f"❌ Search error: {str(e)}")
+        return
+    
+    # Reminder
+    if any(phrase in lower for phrase in ["remind me", "remind me to", "don't forget to", "set a reminder"]):
+        # Extract reminder
+        for prefix in ["remind me to ", "remind me ", "don't forget to ", "set a reminder to "]:
+            if prefix in lower:
+                reminder_msg = content.split(prefix, 1)[1].strip()
+                # Simple version - just acknowledge for now
+                key = f"remind_{len(memory)}"
+                memory[key] = f"Reminder: {reminder_msg}"
+                await message.reply(f"✅ I'll remind you: {reminder_msg}")
+                return
+        await message.reply("❌ What should I remind you about?")
+        return
+    
+    # Stats / analytics
+    if any(phrase in lower for phrase in ["stats", "usage", "how many", "what have you done"]):
+        await message.reply(f"📊 Stats: {len(memory)} memories stored, {len(conversation_history)} conversation turns")
         return
     
     # === COMMANDS (with !) ===
