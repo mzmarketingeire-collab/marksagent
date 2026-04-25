@@ -58,6 +58,13 @@ proactive_suggestions = [
 ]
 suggestion_cooldown = 0  # Only suggest every few messages
 
+# Conversation history with timestamps (keep for 24h)
+conversation_history = []  # List of {"role": ..., "content": ..., "timestamp": ...}
+CONVERSATION_TTL = 86400  # 24 hours in seconds
+
+# Long-term memory (only important stuff gets saved here)
+long_term_memory = {}  # Persists across conversations
+
 # API Usage Tracking
 daily_usage = {"calls": 0, "date": time.strftime("%Y-%m-%d"), "cost_estimate": 0.0}
 # Approximate costs per model (per 1K tokens)
@@ -101,10 +108,24 @@ async def save_memory(key, value):
     except:
         pass
 
+def cleanup_conversation_history():
+    """Remove old messages from conversation history (older than 24h)
+    Also removes temporary corrections - only keeps important long-term learnings"""
+    global conversation_history
+    now = time.time()
+    # Keep: recent messages (<24h) OR important stuff OR non-temporary corrections
+    conversation_history = [
+        msg for msg in conversation_history
+        if (now - msg.get("timestamp", 0) < CONVERSATION_TTL) or msg.get("important", False) or msg.get("temporary", False) is False
+    ]
+
 async def call_ai(prompt):
     global conversation_history, daily_usage
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
+    
+    # Clean up old conversation history first
+    cleanup_conversation_history()
     
     # Check cache for repeated prompts
     cached = response_cache.get(prompt)
@@ -116,14 +137,10 @@ async def call_ai(prompt):
     # Build messages
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     
-    # Memory context (limit to latest 5 entries)
-    if memory:
-        mem_ctx = "Previous context:\n" + "\n".join([f"- {v}" for v in list(memory.values())[-5:]])
-        messages.append({"role": "system", "content": mem_ctx})
-    
-    # Conversation history (keep last 4 messages = 2 pairs)
-    for msg in conversation_history[-4:]:
-        messages.append(msg)
+    # Long-term memory context (important stuff only)
+    if long_term_memory:
+        ltm_ctx = "Important context:\n" + "\n".join([f"- {v}" for v in list(long_term_memory.values())[-3:]])
+        messages.append({"role": "system", "content": ltm_ctx})
     
     # Current prompt
     messages.append({"role": "user", "content": prompt})
@@ -138,7 +155,10 @@ async def call_ai(prompt):
                 if resp.status == 200:
                     data = await resp.json()
                     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    conversation_history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": content}])
+                    conversation_history.extend([
+                        {"role": "user", "content": prompt, "timestamp": time.time()},
+                        {"role": "assistant", "content": content, "timestamp": time.time()}
+                    ])
                     # Prune conversation if too long
                     if len(conversation_history) > 8:
                         conversation_history = conversation_history[-8:]
@@ -167,7 +187,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global memory, conversation_history, current_model, user_profile, suggestion_cooldown, daily_usage
+    global memory, conversation_history, current_model, user_profile, suggestion_cooldown, daily_usage, long_term_memory
     if message.author == client.user:
         return
     
@@ -450,13 +470,19 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
     # === REGULAR CONVERSATION ===
     await message.channel.typing()
     
-    # === LEARNING: Detect corrections (only for current conversation) ===
+    # === LEARNING: Detect corrections (only for current conversation, context-specific) ===
     correction_keywords = ["no that's wrong", "that's incorrect", "actually it's", "not quite", "you misunderstood", "that's not right"]
     if any(corr in lower for corr in correction_keywords):
-        # Add correction to current conversation context only (temporary)
-        correction_msg = {"role": "user", "content": f"Correction: {content}"}
+        # Add correction with topic tag - only applies to current context
+        topic_hint = "current_topic"
+        correction_msg = {
+            "role": "user", 
+            "content": f"Correction about what we're discussing: {content}",
+            "timestamp": time.time(),
+            "temporary": True  # This correction won't be saved long-term
+        }
         conversation_history.append(correction_msg)
-        await message.reply("✅ Got it, thanks! I'll adjust my response.")
+        await message.reply("✅ Got it! Adjusting for this specific conversation.")
         # Now call AI again with correction context
         response = await call_ai(content)
         if response["success"]:
@@ -494,11 +520,15 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
                 suggestion = random.choice(proactive_suggestions)
                 await message.reply(f"💡 {suggestion}")
             
-            # Auto-save important info
-            if any(kw in lower for kw in ["remember", "important", "note this", "new business", "client", "candidate", "don't forget"]):
-                key = f"mem_{len(memory)}"
-                memory[key] = content
+            # Auto-save important info to long-term memory
+            if any(kw in lower for kw in ["remember", "important", "note this", "new business", "client", "candidate", "don't forget", "save this"]):
+                key = f"ltm_{len(long_term_memory)}"
+                long_term_memory[key] = content
+                # Also save to Supabase for persistence
                 await save_memory(key, content)
+                # Mark current conversation as having important info
+                if conversation_history:
+                    conversation_history[-1]["important"] = True
         else:
             await message.reply(f"❌ {response['error']}")
     except Exception as e:
