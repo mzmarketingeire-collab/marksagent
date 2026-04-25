@@ -5,8 +5,7 @@ An AI-powered business advisor that helps with brainstorming, analysis, and plan
 ## Features
 
 - 🧠 **Brainstorming** - Generate business ideas
-- 📊 **Analysis** - Market a
-nd competitive analysis
+- 📊 **Analysis** - Market trends, intel and competitive analysis
 - 🗺️ **Planning** - Strategic planning and roadmaps
 - 💬 **Natural Chat** - Talk to AI naturally
 - 💰 **Budget Control** - Daily spending limits
