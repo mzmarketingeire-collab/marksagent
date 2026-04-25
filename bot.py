@@ -255,6 +255,11 @@ async def on_message(message):
         await message.reply(embed=embed)
         return
     
+    # Show which model is currently active
+    if any(phrase in lower for phrase in ["what model", "which model", "what are you using", "current model"]):
+        await message.reply(f"🤖 Currently using: **{MODELS.get(current_model, {}).get('name', current_model)}**")
+        return
+    
     if any(phrase in lower for phrase in ["switch to", "use ", "change model to", "try "]):
         # Extract model name from phrase
         for model_key in MODELS.keys():
