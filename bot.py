@@ -1,4 +1,5 @@
 import os
+import time
 import discord
 import aiohttp
 import json
@@ -38,6 +39,8 @@ client = discord.Client(intents=intents)
 current_model = "haiku"
 memory = {}
 conversation_history = []
+response_cache = {}
+CACHE_TTL = 60  # seconds
 
 def get_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
@@ -62,6 +65,11 @@ async def save_memory(key, value):
     try:
         async with aiohttp.ClientSession() as session:
             await session.post(f"{SUPABASE_URL}/rest/v1/memory", json={"key": key, "value": value}, headers=get_headers())
+            # Prune local memory if too large (keep latest 20)
+            if len(memory) >= 20:
+                # Remove oldest entry (first key)
+                oldest_key = next(iter(memory))
+                del memory[oldest_key]
     except:
         pass
 
@@ -69,18 +77,23 @@ async def call_ai(prompt):
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
     
+    # Check cache for repeated prompts
+    cached = response_cache.get(prompt)
+    if cached and time.time() - cached["time"] < CACHE_TTL:
+        return {"success": True, "content": cached["content"]}
+    
     model = MODELS[current_model]["id"]
     
     # Build messages
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     
-    # Memory context
+    # Memory context (limit to latest 5 entries)
     if memory:
         mem_ctx = "Previous context:\n" + "\n".join([f"- {v}" for v in list(memory.values())[-5:]])
         messages.append({"role": "system", "content": mem_ctx})
     
-    # Conversation history
-    for msg in conversation_history[-6:]:
+    # Conversation history (keep last 4 messages = 2 pairs)
+    for msg in conversation_history[-4:]:
         messages.append(msg)
     
     # Current prompt
@@ -97,6 +110,11 @@ async def call_ai(prompt):
                     data = await resp.json()
                     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                     conversation_history.extend([{"role": "user", "content": prompt}, {"role": "assistant", "content": content}])
+                    # Prune conversation if too long
+                    if len(conversation_history) > 8:
+                        conversation_history = conversation_history[-8:]
+                    # Cache the response
+                    response_cache[prompt] = {"content": content, "time": time.time()}
                     return {"success": True, "content": content}
                 else:
                     return {"success": False, "error": f"API error: {resp.status}"}
