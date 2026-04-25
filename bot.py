@@ -256,7 +256,7 @@ async def on_message(message):
         return
     
     # Show which model is currently active
-    if any(phrase in lower for phrase in ["what model", "which model", "what are you using", "current model"]):
+    if any(phrase in lower for phrase in ["what model", "which model", "what are you using", "current model", "what are you running", "which ai"]):
         await message.reply(f"🤖 Currently using: **{MODELS.get(current_model, {}).get('name', current_model)}**")
         return
     
