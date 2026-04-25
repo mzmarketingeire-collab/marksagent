@@ -36,15 +36,39 @@ BeHAVIOR:
 
 Remember: You're working with a business owner who values efficiency and results."""
 
-# Available models
+# Available models with free tier limits (per day)
 MODELS = {
-    "haiku": {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "desc": "Fast & concise"},
-    "flash": {"id": "google/gemini-1.5-flash", "name": "Gemini Flash", "desc": "Quick & smart"},
-    "gemma": {"id": "google/gemma-2-9b-instruct", "name": "Gemma 2", "desc": "Google's latest"},
-    "llama": {"id": "meta-llama/llama-3-8b-instruct", "name": "Llama 3", "desc": "Open source"},
-    "mistral": {"id": "mistralai/mistral-7b-instruct", "name": "Mistral", "desc": "Balanced"},
-    "sonar": {"id": "perplexity/sonar-small-online", "name": "Sonar", "desc": "Web search"}
+    "haiku": {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "desc": "Fast & concise", "free_limit": 0, "priority": 1},
+    "flash": {"id": "google/gemini-1.5-flash", "name": "Gemini Flash", "desc": "Quick & smart", "free_limit": 1500, "priority": 3},
+    "gemma": {"id": "google/gemma-2-9b-instruct", "name": "Gemma 2", "desc": "Google's latest", "free_limit": 500, "priority": 2},
+    "llama": {"id": "meta-llama/llama-3-8b-instruct", "name": "Llama 3", "desc": "Open source", "free_limit": 1000, "priority": 4},
+    "mistral": {"id": "mistralai/mistral-7b-instruct", "name": "Mistral", "desc": "Balanced", "free_limit": 500, "priority": 5},
+    "sonar": {"id": "perplexity/sonar-small-online", "name": "Sonar", "desc": "Web search", "free_limit": 100, "priority": 6}
 }
+
+# Track free tier usage per model
+free_usage = {key: 0 for key in MODELS.keys()}
+
+def get_best_model(is_premium_task=False):
+    """Auto-select best model based on free limits and priority"""
+    global free_usage, current_model
+    
+    # Premium tasks (ghostwriting client voice) always use best available
+    if is_premium_task:
+        return current_model  # User's selected model
+    
+    # Find best free model with available quota
+    for key in sorted(MODELS.keys(), key=lambda x: MODELS[x]["priority"]):
+        limit = MODELS[key]["free_limit"]
+        used = free_usage.get(key, 0)
+        
+        if limit == 0:  # Unlimited (Haiku)
+            return key
+        if used < limit:  # Has free quota left
+            return key
+    
+    # All free exhausted - use fallback
+    return "haiku"  # Cheapest fallback
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -128,8 +152,8 @@ def cleanup_conversation_history():
         if (now - msg.get("timestamp", 0) < CONVERSATION_TTL) or msg.get("important", False) or msg.get("temporary", False) is False
     ]
 
-async def call_ai(prompt):
-    global conversation_history, daily_usage, current_model
+async def call_ai(prompt, is_premium_task=False):
+    global conversation_history, daily_usage, current_model, free_usage
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
     
@@ -141,11 +165,9 @@ async def call_ai(prompt):
     if cached and time.time() - cached["time"] < CACHE_TTL:
         return {"success": True, "content": cached["content"]}
     
-    # Try each model in order until one works
-    model_order = [current_model] + [k for k in MODELS.keys() if k != current_model]
-    
-    for model_key in model_order:
-        model = MODELS[model_key]["id"]
+    # Auto-select best model based on free limits
+    model_key = get_best_model(is_premium_task)
+    model = MODELS[model_key]["id"]
         
         # Build messages
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -169,17 +191,19 @@ async def call_ai(prompt):
                         data = await resp.json()
                         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                         
-                        # Track which model actually worked
+                        # Track model that worked
                         current_model = model_key
+                        
+                        # Track free usage
+                        free_usage[model_key] = free_usage.get(model_key, 0) + 1
                         
                         conversation_history.extend([
                             {"role": "user", "content": prompt, "timestamp": time.time()},
                             {"role": "assistant", "content": content, "timestamp": time.time()}
                         ])
-                        # Prune conversation if too long
                         if len(conversation_history) > 8:
                             conversation_history = conversation_history[-8:]
-                        # Cache the response
+                        
                         response_cache[prompt] = {"content": content, "time": time.time()}
                         
                         # === TRACK API USAGE ===
@@ -190,9 +214,12 @@ async def call_ai(prompt):
                         daily_usage["cost_estimate"] += MODEL_COSTS.get(current_model, 0.001)
                         
                         return {"success": True, "content": content}
-                    # Model failed, try next
+                    else:
+                        # Try next model on failure
+                        continue
         except:
-            continue  # Try next model
+            # Try next model on error
+            continue
     
     return {"success": False, "error": "All models failed"}
 
@@ -532,8 +559,12 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
             await message.reply("Great! I now know about your business. Feel free to ask me anything!")
             return
     
+    # Detect premium tasks (ghostwriting in client voice)
+    premium_keywords = ["ghostwrite", "in the voice of", "client voice", "write like", "sounding like"]
+    is_premium = any(kw in lower for kw in premium_keywords)
+    
     try:
-        response = await call_ai(content)
+        response = await call_ai(content, is_premium_task=is_premium)
         if response["success"]:
             await message.reply(response["content"][:2000])
             
