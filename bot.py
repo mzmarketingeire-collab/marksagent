@@ -5,7 +5,9 @@ import aiohttp
 import json
 import asyncio
 from datetime import datetime, timedelta
+import yaml # Make sure you have PyYAML installed
 
+# === ENVIRONMENT VARIABLES ===
 TOKEN = os.getenv("DISCORD_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_AI_KEY = os.getenv("GOOGLE_API_KEY")
@@ -13,149 +15,353 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 MINIMAX_KEY = os.getenv("MINIMAX_API_KEY")
 
-SYSTEM_PROMPT = """You are Mark's versatile AI assistant."""
+# === SYSTEM PROMPT ===
+SYSTEM_PROMPT = """You are Mark's versatile AI business assistant.
 
+CRITICAL RULES:
+- Answer DIRECTLY and HELPFULLY
+- Never say "I can't", "I don't know", or refuse
+- Remember context from conversation
+- Use user's info when they tell you about their setup
+- Be confident, practical, and results-focused
+- Always try to help - if unsure, ask or make your best guess
+
+CORE STRENGTHS:
+- Business strategy & execution (startups, scaling, operations)
+- Sales, networking, lead generation
+- Content creation & social media (LinkedIn especially)
+- Recruitment & talent placement
+- Market research & competitive analysis
+- Coding & technical problems
+- Anything the user needs - no limits
+
+BEHAVIOR:
+- Be concise but thorough
+- Break complex tasks into steps
+- Ask clarifying questions when needed
+- Give specific, actionable advice
+- Remember this conversation context
+- Help with multiple business ideas the user is developing
+- Adapt to user's communication style
+- Proactive suggestions when helpful"""
+
+# === SMART MODEL REGISTRY ===
+# Centralized model definitions with cost, priority, and free limits
 MODELS = {
-    "google": {"id": "google", "free_limit": 1500},
-    "gemini-flash": {"id": "google/gemini-1.5-flash", "free_limit": 2000},
-    "gemma": {"id": "google/gemma-2-9b-instruct", "free_limit": 1000},
-    "minimax": {"id": "minimax", "free_limit": 2000},
-    "haiku": {"id": "anthropic/claude-3-haiku", "free_limit": 0},
-    "llama": {"id": "meta-llama/llama-3-8b-instruct", "free_limit": 1000}
+ "google": {
+ "id": "google", # Internal key
+ "name": "Google Gemini 2.0",
+ "desc": "Fast, free, 1500/day",
+ "cost": 0,
+ "priority": 0,
+ "free_limit": 1500,
+ "good_for": ["chat", "brainstorm", "analysis", "quick_response"]
+ },
+ "gemini-flash": {
+ "id": "google/gemini-1.5-flash", # OpenRouter ID
+ "name": "Gemini Flash",
+ "desc": "Smart, often free via OpenRouter",
+ "cost": 0.00035, # Example cost per 1M tokens, adjust if needed
+ "priority": 1,
+ "free_limit": 2000, # Assuming a generous free limit for tracking
+ "good_for": ["reasoning", "writing", "analysis"]
+ },
+ "gemma": {
+ "id": "google/gemma-2-9b-instruct",
+ "name": "Gemma 2 (Google)",
+ "desc": "Free, lightweight",
+ "cost": 0,
+ "priority": 2,
+ "free_limit": 1000,
+ "good_for": ["brainstorm", "chat", "quick_tasks"]
+ },
+ "minimax": {
+ "id": "minimax", # Internal key
+ "name": "MiniMax",
+ "desc": "Free tier available",
+ "cost": 0,
+ "priority": 3,
+ "free_limit": 2000,
+ "good_for": ["chat", "writing", "analysis"]
+ },
+ "haiku": {
+ "id": "anthropic/claude-3-haiku", # OpenRouter ID
+ "name": "Claude 3 Haiku",
+ "desc": "Fast & cheap ($0.0008/1K tokens)",
+ "cost": 0.0008, # Cost per 1M tokens
+ "priority": 4,
+ "free_limit": 0, # Not free
+ "good_for": ["complex_reasoning", "ghostwriting", "precision"]
+ },
+ "llama": {
+ "id": "meta-llama/llama-3-8b-instruct", # OpenRouter ID
+ "name": "Llama 3",
+ "desc": "Open source, consider cost",
+ "cost": 0.0002, # Example cost per 1M tokens
+ "priority": 5,
+ "free_limit": 1000, # Assuming a tracking limit even if not strictly free
+ "good_for": ["reasoning", "analysis"]
+ }
 }
 
+# === TASK CLASSIFIER ===
+# Defines how to categorize user requests to pick the best model
+TASK_TYPES = {
+ "brainstorm": {
+ "keywords": ["brainstorm", "idea", "startup", "business idea", "concept", "new venture", "innovate"],
+ "best_models": ["google", "gemini-flash", "gemma"], # Prioritized list
+ "description": "Ideation & creative thinking"
+ },
+ "analysis": {
+ "keywords": ["analyze", "analysis", "evaluate", "assess", "market", "competitor", "research", "trends", "intel"],
+ "best_models": ["gemini-flash", "google", "llama"],
+ "description": "Deep analysis & research"
+ },
+ "writing": {
+ "keywords": ["write", "draft", "create", "compose", "ghostwrite", "post", "linkedin", "email", "content"],
+ "best_models": ["haiku", "gemini-flash", "llama"], # Haiku can be good for writing
+ "description": "Content creation & writing"
+ },
+ "planning": {
+ "keywords": ["plan", "strategy", "roadmap", "steps", "how to", "execute", "launch", "hire", "build"],
+ "best_models": ["gemini-flash", "haiku", "google"],
+ "description": "Strategic planning"
+ },
+ "quick_response": { # Default category
+ "keywords": [],
+ "best_models": ["google", "gemma", "minimax"], # Fallback to fast, free models
+ "description": "Quick conversational response"
+ }
+}
+
+# === GLOBAL STATE ===
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True # Required to read message content
 client = discord.Client(intents=intents)
 
-conversation_history = []
-free_usage = {k: 0 for k in MODELS.keys()}
+current_model = "google" # Default starting model
+memory = {} # Short-term memory cache
+long_term_memory = {} # Placeholder for more persistent memory
+conversation_history = [] # Stores recent chat turns for context
+response_cache = {} # For caching recent responses
+CACHE_TTL = 60 # Cache lasts for 60 seconds
 
+# Daily budget tracking
 daily_budget = {
-    "date": time.strftime("%Y-%m-%d"),
-    "spent": 0.0,
-    "max_eur": 1.0,
-    "calls": 0
+ "date": time.strftime("%Y-%m-%d"),
+ "spent": 0.0,
+ "max_eur": 1.0, # Set your daily budget here (e.g., 1 EUR)
+ "calls": 0
 }
 
-def reset_budget():
-    today = time.strftime("%Y-%m-%d")
-    if daily_budget["date"] != today:
-        daily_budget["date"] = today
-        daily_budget["spent"] = 0.0
-        daily_budget["calls"] = 0
+# User profile for business context
+user_profile = {
+ "business_ideas": [],
+ "current_focus": None
+}
 
+# Tracking free usage for models that have a limit
+free_usage = {}
+for key, model_config in MODELS.items():
+    if model_config.get("free_limit", 0) > 0:
+        free_usage[key] = 0 # Initialize free usage counter
 
-# =========================
-# 🔥 FIXED GEMINI CALL
-# =========================
+suggestion_cooldown = 0 # To prevent too many proactive suggestions
+
+# === HELPER FUNCTIONS ===
+
+def load_railway_config(filepath="railway.yaml"):
+    """Loads configuration from railway.yaml."""
+    try:
+        with open(filepath, 'r') as file:
+            config = yaml.safe_load(file)
+        return config
+    except FileNotFoundError:
+        print(f"Error: {filepath} not found.")
+        return None
+    except yaml.YAMLError as e:
+        print(f"Error parsing {filepath}: {e}")
+        return None
+
+# Load config once at the start
+RAILWAY_CONFIG = load_railway_config()
+if RAILWAY_CONFIG is None:
+    print("Fatal Error: Could not load railway.yaml config. Bot cannot proceed.")
+    # Consider exiting or setting defaults if config is missing
+    # exit() 
+
+# Use config for budget if available, otherwise use defaults
+if RAILWAY_CONFIG and "safety" in RAILWAY_CONFIG and "daily_budget_eur" in RAILWAY_CONFIG["safety"]:
+    daily_budget["max_eur"] = RAILWAY_CONFIG["safety"]["daily_budget_eur"]
+else:
+    print("Warning: Daily budget not found in railway.yaml, using default €1.0")
+
+def get_headers():
+    """Returns Supabase headers if keys are set."""
+    if SUPABASE_URL and SUPABASE_KEY:
+        return {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json"
+        }
+    return {}
+
+def get_supabase_session():
+    """Returns an aiohttp ClientSession if Supabase is configured."""
+    if SUPABASE_URL and SUPABASE_KEY:
+        return aiohttp.ClientSession()
+    return None
+
+# === TASK CLASSIFICATION ===
+def classify_task(prompt):
+    """Classifies the user's prompt into a task type based on keywords."""
+    prompt_lower = prompt.lower()
+    for task_type, config in TASK_TYPES.items():
+        if task_type == "quick_response": continue # Skip default for now
+        for keyword in config.get("keywords", []):
+            if keyword in prompt_lower:
+                return task_type
+    return "quick_response" # Default if no keywords match
+
+# === MODEL SELECTION LOGIC ===
+def get_best_model(task_type="quick_response", force_free=True):
+    """
+    Selects the best model based on task type, priority, cost, free limits, and API availability.
+    force_free: If True, only considers models with free_limit > 0 or cost == 0.
+    """
+    global daily_budget, free_usage
+
+    # 1. Check if daily budget is exhausted
+    if daily_budget["spent"] >= daily_budget["max_eur"]:
+        print("Daily budget exhausted. Forcing free model 'google'.")
+        return "google" # Force the most reliable free model
+
+    # 2. Get models prioritized for this task
+    task_config = TASK_TYPES.get(task_type, {})
+    prioritized_models = task_config.get("best_models", [])
+
+    # Add other models not explicitly listed for the task type, ordered by priority
+    all_model_keys = sorted(MODELS.keys(), key=lambda k: MODELS[k].get("priority", 99))
+    
+    # Combine prioritized and general models, ensuring no duplicates and maintaining order somewhat
+    ordered_model_keys = []
+    seen_models = set()
+    for model_key in prioritized_models:
+        if model_key in MODELS and model_key not in seen_models:
+            ordered_model_keys.append(model_key)
+            seen_models.add(model_key)
+    for model_key in all_model_keys:
+        if model_key not in seen_models:
+            ordered_model_keys.append(model_key)
+            seen_models.add(model_key)
+
+    print(f"Attempting models for task '{task_type}' in order: {ordered_model_keys}")
+
+    best_model_found = None
+
+    for model_key in ordered_model_keys:
+        model = MODELS.get(model_key)
+        if not model: continue
+
+        model_id = model.get("id")
+        cost = model.get("cost", 0)
+        free_limit = model.get("free_limit", 0)
+
+        # Check API Key Availability
+        has_key = True
+        if model_key == "google" and not GOOGLE_AI_KEY: has_key = False
+        if model_key == "minimax" and not MINIMAX_KEY: has_key = False
+        # For OpenRouter models, OPENROUTER_KEY is needed
+        if model_id and "openrouter" in model_id and not OPENROUTER_KEY: has_key = False
+        # Add checks for other specific API keys if needed
+
+        if not has_key:
+            print(f"Skipping '{model_key}': API key not available.")
+            continue
+            
+        # Check if model is considered free
+        is_free = cost == 0 or free_limit > 0 # Treat models with free_limit > 0 as potentially free for tracking
+
+        # Apply force_free filter
+        if force_free and not is_free and free_limit == 0:
+            print(f"Skipping '{model_key}': Not free and force_free is True.")
+            continue
+
+        # Check free limit if applicable
+        if free_limit > 0:
+            used = free_usage.get(model_key, 0)
+            if used >= free_limit:
+                print(f"Skipping '{model_key}': Free limit reached ({used}/{free_limit}).")
+                continue
+        
+        # Check if the cost is within budget (even if free limit is met, check budget)
+        if daily_budget["spent"] + cost < daily_budget["max_eur"]:
+            best_model_found = model_key
+            print(f"Selected model: '{best_model_found}'.")
+            return best_model_found
+        else:
+            print(f"Skipping '{model_key}': Cost ({cost}) exceeds remaining budget.")
+
+    # If no model fits criteria, fallback to the most reliable free model (Google)
+    print("No suitable model found, falling back to 'google'.")
+    return "google"
+
+# === API CALL FUNCTIONS ===
+
 async def call_google(prompt):
-    if not GOOGLE_AI_KEY:
-        return {"success": False, "error": "Missing GOOGLE_API_KEY"}
+    """Calls the Google Gemini API."""
+    global conversation_history, daily_budget, current_model, free_usage, long_term_memory
 
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    if not GOOGLE_AI_KEY: return {"success": False, "error": "Google API key not set"}
 
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": str(prompt)}]
-            }
-        ]
-    }
+    # Construct messages for the API
+    messages = [{"role": "user", "parts": [{"text": prompt}]}]
+    
+    # Use the correct API endpoint for Gemini 2.0 flash
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent" 
+    params = {"key": GOOGLE_AI_KEY}
+    model_key = "google" # Internal key defined in MODELS dict
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{url}?key={GOOGLE_AI_KEY}",
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            ) as resp:
+            # --- Make the POST request to the Google API ---
+            async with session.post(url, params=params, json={"contents": messages}, timeout=60) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    # Extract the response content
+                    content = (
+                        data.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", "")
+                    )
 
-                text = await resp.text()
+                    if not content: # Handle cases where API returns success but no text
+                        return {"success": False, "error": "Google API returned empty content."}
 
-                if resp.status != 200:
-                    print("GEMINI ERROR:", resp.status, text)
-                    return {"success": False, "error": text}
+                    # --- Update global state on success ---
+                    current_model = model_key
+                    if MODELS[model_key].get("free_limit", 0) > 0: # Only track if it has a free limit defined
+                        free_usage[model_key] = free_usage.get(model_key, 0) + 1
+                    
+                    cost = MODELS.get(model_key, {}).get("cost", 0) # Get cost from MODELS dict
+                    daily_budget["spent"] += cost
+                    daily_budget["calls"] += 1
+                    
+                    # Add to conversation history (simplified)
+                    conversation_history.append({"role": "user", "content": prompt, "timestamp": time.time()})
+                    conversation_history.append({"role": "assistant", "content": content, "timestamp": time.time()})
 
-                data = await resp.json()
-
-                content = (
-                    data.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "")
-                )
-
-                return {"success": True, "content": content, "model": "google"}
-
+                    return {"success": True, "content": content, "model": model_key, "cost": cost}
+                else:
+                    # Handle API errors
+                    error_text = await resp.text()
+                    print(f"Google API error: {resp.status} - {error_text}")
+                    return {"success": False, "error": f"Google API error ({resp.status}): {error_text}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        # Handle network or other exceptions
+        print(f"Exception in call_google: {str(e)}")
+        return {"success": False, "error": f"Exception in call_google: {str(e)}"}
 
-
-async def call_openrouter(prompt, model_id):
-    if not OPENROUTER_KEY:
-        return {"success": False, "error": "Missing OpenRouter key"}
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "model": model_id,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload, headers=headers) as resp:
-            data = await resp.json()
-            content = data["choices"][0]["message"]["content"]
-            return {"success": True, "content": content, "model": model_id}
-
-
-async def call_ai(prompt):
-    reset_budget()
-
-    # 1. Try Google FIRST (free)
-    result = await call_google(prompt)
-    if result["success"]:
-        return result
-
-    # 2. Fallback to Claude (ONLY if needed)
-    result = await call_openrouter(prompt, MODELS["haiku"]["id"])
-    if result["success"]:
-        return result
-
-    return {"success": False, "error": "All models failed"}
-
-
-@client.event
-async def on_ready():
-    print(f"✅ Bot running as {client.user}")
-
-
-@client.event
-async def on_message(message):
-    if message.author == client.user:
-        return
-
-    if not (isinstance(message.channel, discord.DMChannel) or client.user in message.mentions):
-        return
-
-    async with message.channel.typing():
-        response = await call_ai(message.content)
-
-        if response["success"]:
-            await message.reply(response["content"][:2000])
-        else:
-            await message.reply(f"❌ {response['error']}")
-
-
-if __name__ == "__main__":
-    client.run(TOKEN)
+# --- IMPORTANT: Ensure this is the COMPLETE call_google function ---
