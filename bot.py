@@ -68,6 +68,9 @@ def get_best_model(is_premium_task=False):
     
     # Find best free model with available quota
     for key in sorted(MODELS.keys(), key=lambda x: MODELS[x]["priority"]):
+        # Skip MiniMax if no key set
+        if key == "minimax" and not MINIMAX_KEY:
+            continue
         limit = MODELS[key]["free_limit"]
         used = free_usage.get(key, 0)
         
