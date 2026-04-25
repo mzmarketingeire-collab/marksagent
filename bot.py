@@ -140,7 +140,66 @@ async def on_message(message):
     content = message.content.strip()
     lower = content.lower()
     
-    # === COMMANDS ===
+    # === NATURAL LANGUAGE COMMANDS (no ! needed) ===
+    # These phrases trigger commands without "!"
+    
+    # Models / switching
+    if any(phrase in lower for phrase in ["what models", "which models", "what ai", "show me models", "what can you use"]):
+        embed = discord.Embed(title="🤖 Available Models", color=0x0099ff)
+        for key, val in MODELS.items():
+            marker = " ✅" if key == current_model else ""
+            embed.add_field(name=f"!use {key}", value=f"{val['name']} - {val['desc']}{marker}", inline=False)
+        await message.reply(embed=embed)
+        return
+    
+    if any(phrase in lower for phrase in ["switch to", "use ", "change model to", "try "]):
+        # Extract model name from phrase
+        for model_key in MODELS.keys():
+            if model_key in lower:
+                current_model = model_key
+                await message.reply(f"✅ Switched to {MODELS[model_key]['name']}")
+                return
+        # If no known model found, ask which
+        await message.reply("🤖 Which model? Try: haiku, flash, llama, mistral, or sonar")
+        return
+    
+    # Memory
+    if any(phrase in lower for phrase in ["what do you remember", "show me memory", "your memory", "what's in your memory"]):
+        if memory:
+            await message.reply("📝 " + "\n".join([f"- {v}" for v in memory.values()])[:1500])
+        else:
+            await message.reply("📝 No memory yet. Just tell me something to remember!")
+        return
+    
+    if any(phrase in lower for phrase in ["remember this", "remember that", "don't forget", "keep this in mind"]):
+        info = content
+        key = f"mem_{len(memory)}"
+        memory[key] = info
+        await save_memory(key, info)
+        await message.reply(f"✅ Got it! I'll remember: {info[:100]}")
+        return
+    
+    # About
+    if any(phrase in lower for phrase in ["who are you", "what are you", "about you", "tell me about yourself"]):
+        await message.reply("🤖 I'm Mark's AI assistant - helping with NZ construction recruitment, LinkedIn content, and business ideas!")
+        return
+    
+    # Help
+    if any(phrase in lower for phrase in ["help", "what can you do", "commands", "what do you know"]):
+        await message.reply("""
+💬 Just talk to me naturally! I understand:
+
+- Questions about recruitment, business, LinkedIn
+- "Switch to llama" or "use flash" to change AI model
+- "What do you remember?" to see memory
+- "Remember this..." to save something
+- "Who are you?" to learn about me
+
+Or use commands: !models, !use <model>, !memory, !remember <info>, !help
+        """)
+        return
+    
+    # === COMMANDS (with !) ===
     if lower.startswith("!models"):
         embed = discord.Embed(title="🤖 Available Models", color=0x0099ff)
         for key, val in MODELS.items():
