@@ -48,6 +48,17 @@ conversation_history = []
 response_cache = {}
 CACHE_TTL = 60  # seconds
 
+# Learning & profiling
+corrections = {}  # Store corrections to avoid repeating mistakes
+user_profile = {}  # Learn about user's businesses/goals
+proactive_suggestions = [
+    "Want me to draft a LinkedIn post?",
+    "Should I research your competitors?",
+    "Need help with a client follow-up?",
+    "Want to brainstorm a new business idea?"
+]
+suggestion_cooldown = 0  # Only suggest every few messages
+
 def get_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 
@@ -136,7 +147,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global memory, conversation_history, current_model
+    global memory, conversation_history, current_model, corrections, user_profile, suggestion_cooldown
     if message.author == client.user:
         return
     
@@ -416,10 +427,44 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
     # === REGULAR CONVERSATION ===
     await message.channel.typing()
     
+    # === LEARNING: Detect corrections ===
+    correction_keywords = ["no that's wrong", "that's incorrect", "actually it's", "not quite", "you misunderstood"]
+    if any(corr in lower for corr in correction_keywords):
+        # Save correction as a correction
+        key = f"correction_{len(corrections)}"
+        corrections[key] = content
+        await message.reply("✅ Got it! I'll remember that. Thanks for the correction!")
+        # Don't send to AI, just save and return
+        return
+    
+    # === PROFILING: Ask about businesses ===
+    if not user_profile and any(kw in lower for kw in ["i run", "my business", "i work in", "i do"]):
+        # Extract potential business type from message
+        biz_info = content
+        user_profile["business"] = biz_info
+        await message.reply(f"Thanks! I've noted that. What are your main goals for your business?")
+        return
+    
+    # === PROFILING: Goals ===
+    if user_profile and "business" in user_profile and "goals" not in user_profile:
+        if any(kw in lower for kw in ["goal", "want to", "aim to", "focus on"]):
+            user_profile["goals"] = content
+            await message.reply("Great! I now know about your business. Feel free to ask me anything!")
+            return
+    
     try:
         response = await call_ai(content)
         if response["success"]:
             await message.reply(response["content"][:2000])
+            
+            # === PROACTIVE SUGGESTIONS ===
+            global suggestion_cooldown
+            suggestion_cooldown += 1
+            if suggestion_cooldown >= 5:
+                suggestion_cooldown = 0
+                import random
+                suggestion = random.choice(proactive_suggestions)
+                await message.reply(f"💡 {suggestion}")
             
             # Auto-save important info
             if any(kw in lower for kw in ["remember", "important", "note this", "new business", "client", "candidate", "don't forget"]):
