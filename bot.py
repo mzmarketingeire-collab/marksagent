@@ -559,8 +559,8 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
             await message.reply("Great! I now know about your business. Feel free to ask me anything!")
             return
     
-    # Detect premium tasks (ghostwriting in client voice)
-    premium_keywords = ["ghostwrite", "in the voice of", "client voice", "write like", "sounding like"]
+    # Detect premium tasks (ghostwriting in client voice or complex reasoning)
+    premium_keywords = ["ghostwrite", "in the voice of", "client voice", "write like", "sounding like", "complex", "deep reasoning", "analyze this", "think through"]
     is_premium = any(kw in lower for kw in premium_keywords)
     
     try:
