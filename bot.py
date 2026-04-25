@@ -199,18 +199,19 @@ async def call_google(prompt, is_premium_task=False):
     if not GOOGLE_AI_KEY:
         return {"success": False, "error": "GOOGLE_AI_API_KEY not set"}
     
-    # Build messages
-    messages = [{"role": "user", "parts": [{"text": prompt}]}]
+    # Build messages - Google AI format
+    contents = [{"parts": [{"text": prompt}]}]
     if long_term_memory:
         ltm_ctx = "Important context: " + "; ".join(list(long_term_memory.values())[-3:])
-        messages.insert(0, {"role": "user", "parts": [{"text": ltm_ctx}]})
+        contents.insert(0, {"parts": [{"text": ltm_ctx}]})
     
-    url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
     params = {"key": GOOGLE_AI_KEY}
+    payload = {"contents": contents, "generationConfig": {"temperature": 0.9, "maxOutputTokens": 500}}
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, params=params, json={"contents": messages}) as resp:
+            async with session.post(url, params=params, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
