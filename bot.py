@@ -179,9 +179,9 @@ async def call_ai(prompt, is_premium_task=False):
     # Auto-select best model based on free limits
     model_key = get_best_model(is_premium_task)
     model = MODELS[model_key]["id"]
-        
-        # Build messages
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    
+    # Build messages
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         
         # Long-term memory context (important stuff only)
         if long_term_memory:
