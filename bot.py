@@ -497,9 +497,9 @@ async def handle_message(message):
         result = await call_google(prompt)
     
     if result.get("success"):
-        await message.reply(result["content"])
+        await send_response(message, result["content"])
     else:
-        await message.reply(f"Sorry, I encountered an error: {result.get('error')}")
+        await send_response(message, f"Sorry, I encountered an error: {result.get('error')}")
 
 # === DISCORD BOT SETUP ===
 @client.event
@@ -521,18 +521,24 @@ if __name__ == "__main__":
 # === HELPER: Send response safely to Discord ===
 async def send_response(message, content):
     """Safely send response, handling Discord's 2000 char limit."""
-    if not content:
+    # Sanitize: strip whitespace and handle empty/null
+    if not content or not str(content).strip():
         await message.reply("I received an empty response. Please try again.")
         return
     
+    content = str(content).strip()
+    
     # Truncate if too long
-    if len(content) > 1900:  # Leave room for "..." and formatting
+    if len(content) > 1900:
         content = content[:1900] + "\n\n...[truncated]"
     
     try:
         await message.reply(content)
     except Exception as e:
         print(f"Discord send error: {e}")
-        await message.reply(f"Error sending response: {str(e)[:100]}")
+        try:
+            await message.reply(f"Error: {str(e)[:100]}")
+        except:
+            pass  # Give up if we can't even send error
 
 # Update handle_message to use safe send
