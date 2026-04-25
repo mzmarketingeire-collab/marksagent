@@ -6,6 +6,7 @@ import json
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+GOOGLE_AI_KEY = os.getenv("GOOGLE_AI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 MINIMAX_KEY = os.getenv("MINIMAX_API_KEY")
@@ -57,13 +58,14 @@ Remember: You're working with a business owner who values efficiency and results
 
 # Available models with free tier limits (per day)
 MODELS = {
+    "google": {"id": "google", "name": "Google AI Studio", "desc": "Free Gemini", "free_limit": 999999, "priority": 0},
     "haiku": {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "desc": "Fast & concise", "free_limit": 0, "priority": 1},
     "flash": {"id": "google/gemini-1.5-flash", "name": "Gemini Flash", "desc": "Quick & smart", "free_limit": 1500, "priority": 3},
     "gemma": {"id": "google/gemma-2-9b-instruct", "name": "Gemma 2", "desc": "Google's latest", "free_limit": 500, "priority": 2},
     "llama": {"id": "meta-llama/llama-3-8b-instruct", "name": "Llama 3", "desc": "Open source", "free_limit": 1000, "priority": 4},
     "mistral": {"id": "mistralai/mistral-7b-instruct", "name": "Mistral", "desc": "Balanced", "free_limit": 500, "priority": 5},
     "sonar": {"id": "perplexity/sonar-small-online", "name": "Sonar", "desc": "Web search", "free_limit": 100, "priority": 6},
-    "minimax": {"id": "minimax", "name": "MiniMax", "desc": "Free tier", "free_limit": 2000, "priority": 0}
+    "minimax": {"id": "minimax", "name": "MiniMax", "desc": "Free tier", "free_limit": 2000, "priority": 7}
 }
 
 # Track free tier usage per model
@@ -79,7 +81,9 @@ def get_best_model(is_premium_task=False):
     
     # Find best free model with available quota
     for key in sorted(MODELS.keys(), key=lambda x: MODELS[x]["priority"]):
-        # Skip MiniMax if no key set
+        # Skip if no API key
+        if key == "google" and not GOOGLE_AI_KEY:
+            continue
         if key == "minimax" and not MINIMAX_KEY:
             continue
         limit = MODELS[key]["free_limit"]
@@ -124,6 +128,7 @@ long_term_memory = {}  # Persists across conversations
 daily_usage = {"calls": 0, "date": time.strftime("%Y-%m-%d"), "cost_estimate": 0.0}
 # Approximate costs per model (per 1K tokens)
 MODEL_COSTS = {
+    "google": 0,
     "haiku": 0.0008,
     "flash": 0.00035,
     "gemma": 0.0006,
@@ -187,6 +192,47 @@ def cleanup_conversation_history():
         if (now - msg.get("timestamp", 0) < CONVERSATION_TTL) or msg.get("important", False) or msg.get("temporary", False) is False
     ]
 
+async def call_google(prompt, is_premium_task=False):
+    """Use Google AI Studio for free Gemini calls"""
+    global conversation_history, daily_usage, current_model, free_usage, long_term_memory
+    
+    if not GOOGLE_AI_KEY:
+        return {"success": False, "error": "GOOGLE_AI_API_KEY not set"}
+    
+    # Build messages
+    messages = [{"role": "user", "parts": [{"text": prompt}]}]
+    if long_term_memory:
+        ltm_ctx = "Important context: " + "; ".join(list(long_term_memory.values())[-3:])
+        messages.insert(0, {"role": "user", "parts": [{"text": ltm_ctx}]})
+    
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    params = {"key": GOOGLE_AI_KEY}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, params=params, json={"contents": messages}) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    current_model = "google"
+                    free_usage["google"] = free_usage.get("google", 0) + 1
+                    conversation_history.extend([
+                        {"role": "user", "content": prompt, "timestamp": time.time()},
+                        {"role": "assistant", "content": content, "timestamp": time.time()}
+                    ])
+                    if len(conversation_history) > 8:
+                        conversation_history = conversation_history[-8:]
+                    today = time.strftime("%Y-%m-%d")
+                    if daily_usage["date"] != today:
+                        daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
+                    daily_usage["calls"] += 1
+                    daily_usage["cost_estimate"] += 0  # Free
+                    return {"success": True, "content": content}
+                else:
+                    return {"success": False, "error": f"Google AI error: {resp.status}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 async def call_minimax(prompt, is_premium_task=False):
     """Use MiniMax API for free tier calls"""
     global conversation_history, daily_usage, current_model, free_usage, long_term_memory
@@ -232,8 +278,8 @@ async def call_minimax(prompt, is_premium_task=False):
 
 async def call_ai(prompt, is_premium_task=False):
     global conversation_history, daily_usage, current_model, free_usage, long_term_memory
-    if not OPENROUTER_KEY and not MINIMAX_KEY:
-        return {"success": False, "error": "No API key set (OPENROUTER_API_KEY or MINIMAX_API_KEY)"}
+    if not OPENROUTER_KEY and not MINIMAX_KEY and not GOOGLE_AI_KEY:
+        return {"success": False, "error": "No API key set (OPENROUTER_API_KEY, MINIMAX_API_KEY, or GOOGLE_AI_API_KEY)"}
     
     # Clean up old conversation history first
     cleanup_conversation_history()
@@ -246,6 +292,10 @@ async def call_ai(prompt, is_premium_task=False):
     # Auto-select best model based on free limits
     model_key = get_best_model(is_premium_task)
     model = MODELS[model_key]["id"]
+    
+    # === HANDLE GOOGLE AI SEPARATELY ===
+    if model_key == "google" and GOOGLE_AI_KEY:
+        return await call_google(prompt, is_premium_task)
     
     # === HANDL MINIMAX SEPARATELY ===
     if model_key == "minimax" and MINIMAX_KEY:
