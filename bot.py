@@ -231,19 +231,57 @@ def get_best_model(task_type="quick_response", force_free=True):
     """
     global daily_budget, free_usage
 
-    # 1. Check if daily budget is exhausted
-    if daily_budget["spent"] >= daily_budget["max_eur"]:
-        print("Daily budget exhausted. Forcing free model 'google'.")
-        return "google" # Force the most reliable free model
+    print(f"\n=== Model Selection: task={task_type}, force_free={force_free} ===")
+    print(f"Budget: spent €{daily_budget['spent']:.4f} / €{daily_budget['max_eur']}")
 
-    # 2. Get models prioritized for this task
+    # 1. FIRST: When force_free=True, ONLY try free models (skip ALL paid models)
+    if force_free:
+        free_preference = ["google", "gemma", "minimax", "gemini-flash"]
+        
+        for model_key in free_preference:
+            if model_key not in MODELS:
+                continue
+            
+            model = MODELS[model_key]
+            model_id = model.get("id")
+            free_limit = model.get("free_limit", 0)
+            
+            # Check API key availability
+            has_key = True
+            if model_key == "google" and not GOOGLE_AI_KEY:
+                print(f"Skip 'google': GOOGLE_API_KEY not set")
+                has_key = False
+            if model_key == "minimax" and not MINIMAX_KEY:
+                print(f"Skip 'minimax': MINIMAX_API_KEY not set")
+                has_key = False
+            if model_key == "gemini-flash" and not OPENROUTER_KEY:
+                print(f"Skip 'gemini-flash': OPENROUTER_API_KEY not set")
+                has_key = False
+            
+            if not has_key:
+                continue
+            
+            # Check free limit
+            if free_limit > 0:
+                used = free_usage.get(model_key, 0)
+                if used >= free_limit:
+                    print(f"Skip '{model_key}': Free limit reached ({used}/{free_limit})")
+                    continue
+            
+            # Found a working free model!
+            print(f"==> Selected FREE model: '{model_key}'")
+            return model_key
+        
+        # No free model available with valid key
+        if "google" in MODELS:
+            print("No free model with key found, fallback to 'google' (will show error if no key)")
+            return "google"
+
+    # 2. NON-FREE MODE: Use regular priority-based selection
     task_config = TASK_TYPES.get(task_type, {})
     prioritized_models = task_config.get("best_models", [])
-
-    # Add other models not explicitly listed for the task type, ordered by priority
     all_model_keys = sorted(MODELS.keys(), key=lambda k: MODELS[k].get("priority", 99))
     
-    # Combine prioritized and general models, ensuring no duplicates and maintaining order somewhat
     ordered_model_keys = []
     seen_models = set()
     for model_key in prioritized_models:
@@ -255,9 +293,7 @@ def get_best_model(task_type="quick_response", force_free=True):
             ordered_model_keys.append(model_key)
             seen_models.add(model_key)
 
-    print(f"Attempting models for task '{task_type}' in order: {ordered_model_keys}")
-
-    best_model_found = None
+    print(f"Trying models: {ordered_model_keys}")
 
     for model_key in ordered_model_keys:
         model = MODELS.get(model_key)
@@ -265,47 +301,26 @@ def get_best_model(task_type="quick_response", force_free=True):
 
         model_id = model.get("id")
         cost = model.get("cost", 0)
-        free_limit = model.get("free_limit", 0)
 
         # Check API Key Availability
         has_key = True
         if model_key == "google" and not GOOGLE_AI_KEY: has_key = False
         if model_key == "minimax" and not MINIMAX_KEY: has_key = False
-        # For OpenRouter models, OPENROUTER_KEY is needed
         if model_id and "openrouter" in model_id and not OPENROUTER_KEY: has_key = False
-        # Add checks for other specific API keys if needed
 
         if not has_key:
-            print(f"Skipping '{model_key}': API key not available.")
+            print(f"Skip '{model_key}': No API key")
             continue
-            
-        # Check if model is considered free
-        is_free = cost == 0 or free_limit > 0 # Treat models with free_limit > 0 as potentially free for tracking
-
-        # Apply force_free filter
-        if force_free and not is_free and free_limit == 0:
-            print(f"Skipping '{model_key}': Not free and force_free is True.")
-            continue
-
-        # Check free limit if applicable
-        if free_limit > 0:
-            used = free_usage.get(model_key, 0)
-            if used >= free_limit:
-                print(f"Skipping '{model_key}': Free limit reached ({used}/{free_limit}).")
-                continue
         
-        # Check if the cost is within budget (even if free limit is met, check budget)
-        if daily_budget["spent"] + cost < daily_budget["max_eur"]:
-            best_model_found = model_key
-            print(f"Selected model: '{best_model_found}'.")
-            return best_model_found
+        # Check budget
+        if daily_budget["spent"] + cost <= daily_budget["max_eur"]:
+            print(f"==> Selected model: '{model_key}' (€{cost})")
+            return model_key
         else:
-            print(f"Skipping '{model_key}': Cost ({cost}) exceeds remaining budget.")
+            print(f"Skip '{model_key}': Cost €{cost} over budget")
 
-    # If no model fits criteria, fallback to the most reliable free model (Google)
-    print("No suitable model found, falling back to 'google'.")
+    print("No model found, fallback to 'google'")
     return "google"
-
 # === API CALL FUNCTIONS ===
 
 async def call_google(prompt):
