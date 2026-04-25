@@ -295,11 +295,21 @@ async def call_ai(prompt, is_premium_task=False):
     
     # === HANDLE GOOGLE AI SEPARATELY ===
     if model_key == "google" and GOOGLE_AI_KEY:
-        return await call_google(prompt, is_premium_task)
-    
+        result = await call_google(prompt, is_premium_task)
+        if result["success"]:
+            return result
+        # If failed (rate limited), try next model
+        
     # === HANDL MINIMAX SEPARATELY ===
     if model_key == "minimax" and MINIMAX_KEY:
-        return await call_minimax(prompt, is_premium_task)
+        result = await call_minimax(prompt, is_premium_task)
+        if result["success"]:
+            return result
+        # If failed, try next model
+    
+    # Fallback to OpenRouter if special APIs failed
+    if not OPENROUTER_KEY:
+        return {"success": False, "error": "All APIs failed"}
     
     # Build messages
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -410,7 +420,7 @@ async def on_message(message):
     
     # About
     if any(phrase in lower for phrase in ["who are you", "what are you", "about you", "tell me about yourself"]):
-        await message.reply("🤖 I'm Mark's AI assistant - helping with NZ construction recruitment, LinkedIn content, and business ideas!")
+        await message.reply("🤖 I'm a versatile AI assistant - I help with anything you need!")
         return
     
     # Help
@@ -521,7 +531,7 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
         return
     
     if lower.startswith("!whoareyou") or lower.startswith("!about"):
-        await message.reply("🤖 I'm Mark's AI assistant - helping with NZ construction recruitment, LinkedIn content, and business ideas!")
+        await message.reply("🤖 I'm a versatile AI assistant - I help with anything you need!")
         return
     
     if lower.startswith("!clear"):
