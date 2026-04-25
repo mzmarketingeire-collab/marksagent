@@ -164,6 +164,29 @@ async def on_message(message):
         await message.reply("✅ Cleared conversation history")
         return
     
+    if lower.startswith("!db") or lower.startswith("!tables"):
+        # Query Supabase directly
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            await message.reply("❌ Supabase not configured")
+            return
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{SUPABASE_URL}/rest/v1/memory?order=created_at.desc&limit=10", headers=get_headers()) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data:
+                            result = "📊 Database Contents:\n\n"
+                            for row in data:
+                                result += f"• {row.get('key')}: {row.get('value', '')[:50]}\n"
+                            await message.reply(result[:1500])
+                        else:
+                            await message.reply("📊 Database is empty")
+                    else:
+                        await message.reply(f"❌ Query failed: {resp.status}")
+        except Exception as e:
+            await message.reply(f"❌ Error: {str(e)}")
+        return
+
     if lower.startswith("!help"):
         await message.reply("""
 📋 Commands:
@@ -171,6 +194,7 @@ async def on_message(message):
 !use <model> - Switch model
 !remember <info> - Save to memory
 !memory - See memory
+!db - Show database contents
 !whoareyou - About me
 !clear - Clear history
 !help - This help
