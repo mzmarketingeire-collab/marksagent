@@ -197,41 +197,30 @@ async def call_ai(prompt, is_premium_task=False):
     
     try:
         async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        
-                        # Track model that worked
-                        current_model = model_key
-                        
-                        # Track free usage
-                        free_usage[model_key] = free_usage.get(model_key, 0) + 1
-                        
-                        conversation_history.extend([
-                            {"role": "user", "content": prompt, "timestamp": time.time()},
-                            {"role": "assistant", "content": content, "timestamp": time.time()}
-                        ])
-                        if len(conversation_history) > 8:
-                            conversation_history = conversation_history[-8:]
-                        
-                        response_cache[prompt] = {"content": content, "time": time.time()}
-                        
-                        # === TRACK API USAGE ===
-                        today = time.strftime("%Y-%m-%d")
-                        if daily_usage["date"] != today:
-                            daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
-                        daily_usage["calls"] += 1
-                        daily_usage["cost_estimate"] += MODEL_COSTS.get(current_model, 0.001)
-                        
-                        return {"success": True, "content": content}
-                    else:
-                        # Try next model on failure
-                        continue
-        except:
-            # Try next model on error
-            continue
-    
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    current_model = model_key
+                    free_usage[model_key] = free_usage.get(model_key, 0) + 1
+                    conversation_history.extend([
+                        {"role": "user", "content": prompt, "timestamp": time.time()},
+                        {"role": "assistant", "content": content, "timestamp": time.time()}
+                    ])
+                    if len(conversation_history) > 8:
+                        conversation_history = conversation_history[-8:]
+                    response_cache[prompt] = {"content": content, "time": time.time()}
+                    today = time.strftime("%Y-%m-%d")
+                    if daily_usage["date"] != today:
+                        daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
+                    daily_usage["calls"] += 1
+                    daily_usage["cost_estimate"] += MODEL_COSTS.get(current_model, 0.001)
+                    return {"success": True, "content": content}
+                else:
+                    return {"success": False, "error": f"API error: {resp.status}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
     return {"success": False, "error": "All models failed"}
 
 @client.event
