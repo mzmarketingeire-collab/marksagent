@@ -164,7 +164,7 @@ def cleanup_conversation_history():
     ]
 
 async def call_ai(prompt, is_premium_task=False):
-    global conversation_history, daily_usage, current_model, free_usage
+    global conversation_history, daily_usage, current_model, free_usage, long_term_memory
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
     
