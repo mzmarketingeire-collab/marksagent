@@ -5,7 +5,8 @@ import aiohttp
 import json
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")SUPABASE_URL = os.getenv("SUPABASE_URL")
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 MINIMAX_KEY = os.getenv("MINIMAX_API_KEY")
 
