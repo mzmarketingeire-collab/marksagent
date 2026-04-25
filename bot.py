@@ -136,6 +136,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    global memory, conversation_history, current_model
     if message.author == client.user:
         return
     
