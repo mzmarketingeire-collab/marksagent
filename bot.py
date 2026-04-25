@@ -5,9 +5,9 @@ import aiohttp
 import json
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+MINIMAX_KEY = os.getenv("MINIMAX_API_KEY")
 
 # Who am I?
 SYSTEM_PROMPT = """You are a versatile, capable AI assistant that helps with ANY task the user needs.
@@ -48,7 +48,8 @@ MODELS = {
     "gemma": {"id": "google/gemma-2-9b-instruct", "name": "Gemma 2", "desc": "Google's latest", "free_limit": 500, "priority": 2},
     "llama": {"id": "meta-llama/llama-3-8b-instruct", "name": "Llama 3", "desc": "Open source", "free_limit": 1000, "priority": 4},
     "mistral": {"id": "mistralai/mistral-7b-instruct", "name": "Mistral", "desc": "Balanced", "free_limit": 500, "priority": 5},
-    "sonar": {"id": "perplexity/sonar-small-online", "name": "Sonar", "desc": "Web search", "free_limit": 100, "priority": 6}
+    "sonar": {"id": "perplexity/sonar-small-online", "name": "Sonar", "desc": "Web search", "free_limit": 100, "priority": 6},
+    "minimax": {"id": "minimax", "name": "MiniMax", "desc": "Free tier", "free_limit": 2000, "priority": 0}
 }
 
 # Track free tier usage per model
@@ -111,7 +112,8 @@ MODEL_COSTS = {
     "gemma": 0.0006,
     "llama": 0.0002,
     "mistral": 0.00024,
-    "sonar": 0.001
+    "sonar": 0.001,
+    "minimax": 0
 }
 
 def get_headers():
@@ -168,10 +170,53 @@ def cleanup_conversation_history():
         if (now - msg.get("timestamp", 0) < CONVERSATION_TTL) or msg.get("important", False) or msg.get("temporary", False) is False
     ]
 
+async def call_minimax(prompt, is_premium_task=False):
+    """Use MiniMax API for free tier calls"""
+    global conversation_history, daily_usage, current_model, free_usage, long_term_memory
+    
+    if not MINIMAX_KEY:
+        return {"success": False, "error": "MINIMAX_API_KEY not set"}
+    
+    # Build messages (MiniMax format)
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if long_term_memory:
+        ltm_ctx = "Important context:\n" + "\n".join([f"- {v}" for v in list(long_term_memory.values())[-3:]])
+        messages.append({"role": "system", "content": ltm_ctx})
+    messages.append({"role": "user", "content": prompt})
+    
+    url = "https://api.minimax.chat/v1/text/chatcompletion_pro"
+    headers = {"Authorization": f"Bearer {MINIMAX_KEY}", "Content-Type": "application/json"}
+    payload = {"model": "abab6.5s-chat", "messages": messages, "max_tokens": 500}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    current_model = "minimax"
+                    free_usage["minimax"] = free_usage.get("minimax", 0) + 1
+                    conversation_history.extend([
+                        {"role": "user", "content": prompt, "timestamp": time.time()},
+                        {"role": "assistant", "content": content, "timestamp": time.time()}
+                    ])
+                    if len(conversation_history) > 8:
+                        conversation_history = conversation_history[-8:]
+                    today = time.strftime("%Y-%m-%d")
+                    if daily_usage["date"] != today:
+                        daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
+                    daily_usage["calls"] += 1
+                    daily_usage["cost_estimate"] += 0  # Free
+                    return {"success": True, "content": content}
+                else:
+                    return {"success": False, "error": f"MiniMax error: {resp.status}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 async def call_ai(prompt, is_premium_task=False):
     global conversation_history, daily_usage, current_model, free_usage, long_term_memory
-    if not OPENROUTER_KEY:
-        return {"success": False, "error": "OPENROUTER_API_KEY not set"}
+    if not OPENROUTER_KEY and not MINIMAX_KEY:
+        return {"success": False, "error": "No API key set (OPENROUTER_API_KEY or MINIMAX_API_KEY)"}
     
     # Clean up old conversation history first
     cleanup_conversation_history()
@@ -184,6 +229,10 @@ async def call_ai(prompt, is_premium_task=False):
     # Auto-select best model based on free limits
     model_key = get_best_model(is_premium_task)
     model = MODELS[model_key]["id"]
+    
+    # === HANDL MINIMAX SEPARATELY ===
+    if model_key == "minimax" and MINIMAX_KEY:
+        return await call_minimax(prompt, is_premium_task)
     
     # Build messages
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
