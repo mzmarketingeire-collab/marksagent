@@ -59,6 +59,17 @@ proactive_suggestions = [
 ]
 suggestion_cooldown = 0  # Only suggest every few messages
 
+# API Usage Tracking
+daily_usage = {"calls": 0, "date": time.strftime("%Y-%m-%d"), "cost_estimate": 0.0}
+# Approximate costs per model (per 1K tokens)
+MODEL_COSTS = {
+    "haiku": 0.0008,   # $0.0008 per 1K input
+    "flash": 0.00035,  # $0.00035 per 1K input  
+    "llama": 0.0002,
+    "mistral": 0.00024,
+    "sonar": 0.001
+}
+
 def get_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
 
@@ -92,7 +103,7 @@ async def save_memory(key, value):
         pass
 
 async def call_ai(prompt):
-    global conversation_history
+    global conversation_history, daily_usage
     if not OPENROUTER_KEY:
         return {"success": False, "error": "OPENROUTER_API_KEY not set"}
     
@@ -134,6 +145,16 @@ async def call_ai(prompt):
                         conversation_history = conversation_history[-8:]
                     # Cache the response
                     response_cache[prompt] = {"content": content, "time": time.time()}
+                    
+                    # === TRACK API USAGE ===
+                    today = time.strftime("%Y-%m-%d")
+                    if daily_usage["date"] != today:
+                        # New day, reset
+                        daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
+                    daily_usage["calls"] += 1
+                    # Estimate cost (rough approximation)
+                    daily_usage["cost_estimate"] += MODEL_COSTS.get(current_model, 0.001)
+                    
                     return {"success": True, "content": content}
                 else:
                     return {"success": False, "error": f"API error: {resp.status}"}
@@ -147,7 +168,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global memory, conversation_history, current_model, corrections, user_profile, suggestion_cooldown
+    global memory, conversation_history, current_model, corrections, user_profile, suggestion_cooldown, daily_usage
     if message.author == client.user:
         return
     
@@ -368,22 +389,25 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
         return
 
     if lower.startswith("!stats"):
-        # Simple analytics: count commands in last 24h
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            await message.reply("❌ Supabase not configured for analytics")
-            return
-        try:
-            async with aiohttp.ClientSession() as session:
-                query = "created_at=gt.now()-interval'24 hour'"
-                async with session.get(f"{SUPABASE_URL}/rest/v1/analytics?select=command,count&group=command", headers=get_headers()) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        lines = [f"{row['command']}: {row['count']}" for row in data]
-                        await message.reply("📈 Last 24h command usage:\n" + "\n".join(lines))
-                    else:
-                        await message.reply(f"❌ Analytics query failed: {resp.status}")
-        except Exception as e:
-            await message.reply(f"❌ Analytics error: {str(e)}")
+        global daily_usage
+        # Show API usage stats
+        today = time.strftime("%Y-%m-%d")
+        if daily_usage["date"] != today:
+            daily_usage = {"calls": 0, "date": today, "cost_estimate": 0.0}
+        
+        cost = daily_usage["cost_estimate"]
+        calls = daily_usage["calls"]
+        
+        await message.reply(f"""
+📊 **Today's API Usage**
+
+🤖 **Model:** {MODELS[current_model]["name"]}
+📞 **API Calls:** {calls}
+💰 **Est. Cost:** ${cost:.4f} USD
+
+*Costs are estimates based on ~1K tokens per call*
+        """)
+        return
         return
 
     if lower.startswith("!say "):
