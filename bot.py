@@ -49,7 +49,6 @@ response_cache = {}
 CACHE_TTL = 60  # seconds
 
 # Learning & profiling
-corrections = {}  # Store corrections to avoid repeating mistakes
 user_profile = {}  # Learn about user's businesses/goals
 proactive_suggestions = [
     "Want me to draft a LinkedIn post?",
@@ -168,7 +167,7 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global memory, conversation_history, current_model, corrections, user_profile, suggestion_cooldown, daily_usage
+    global memory, conversation_history, current_model, user_profile, suggestion_cooldown, daily_usage
     if message.author == client.user:
         return
     
@@ -451,14 +450,19 @@ Or use commands: !models, !use <model>, !memory, !remember <info>, !help
     # === REGULAR CONVERSATION ===
     await message.channel.typing()
     
-    # === LEARNING: Detect corrections ===
-    correction_keywords = ["no that's wrong", "that's incorrect", "actually it's", "not quite", "you misunderstood"]
+    # === LEARNING: Detect corrections (only for current conversation) ===
+    correction_keywords = ["no that's wrong", "that's incorrect", "actually it's", "not quite", "you misunderstood", "that's not right"]
     if any(corr in lower for corr in correction_keywords):
-        # Save correction as a correction
-        key = f"correction_{len(corrections)}"
-        corrections[key] = content
-        await message.reply("✅ Got it! I'll remember that. Thanks for the correction!")
-        # Don't send to AI, just save and return
+        # Add correction to current conversation context only (temporary)
+        correction_msg = {"role": "user", "content": f"Correction: {content}"}
+        conversation_history.append(correction_msg)
+        await message.reply("✅ Got it, thanks! I'll adjust my response.")
+        # Now call AI again with correction context
+        response = await call_ai(content)
+        if response["success"]:
+            await message.reply(response["content"][:2000])
+        else:
+            await message.reply(f"❌ {response['error']}")
         return
     
     # === PROFILING: Ask about businesses ===
