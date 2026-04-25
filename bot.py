@@ -13,7 +13,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 MINIMAX_KEY = os.getenv("MINIMAX_API_KEY")
 
-SYSTEM_PROMPT = """You are Mark's versatile AI business assistant."""
+SYSTEM_PROMPT = """You are Mark's versatile AI assistant."""
 
 MODELS = {
     "google": {"id": "google", "free_limit": 1500},
