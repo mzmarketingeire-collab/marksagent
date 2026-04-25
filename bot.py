@@ -143,10 +143,21 @@ async def save_memory(key, value):
 
 def cleanup_conversation_history():
     """Remove old messages from conversation history (older than 24h)
-    Also removes temporary corrections - only keeps important long-term learnings"""
-    global conversation_history
+    BUT first auto-save important stuff to long-term memory (Supabase)"""
+    global conversation_history, long_term_memory
     now = time.time()
-    # Keep: recent messages (<24h) OR important stuff OR non-temporary corrections
+    
+    # Before cleanup, check for important stuff worth saving
+    for msg in conversation_history:
+        msg_time = msg.get("timestamp", 0)
+        if now - msg_time > CONVERSATION_TTL - 3600:  # Within 1 hour of expiry
+            content = msg.get("content", "").lower()
+            if any(kw in content for kw in ["remember", "important", "client", "candidate", "business", "goal", "lead", "deal"]):
+                if msg.get("role") == "user":
+                    key = f"ltm_auto_{len(long_term_memory)}"
+                    long_term_memory[key] = msg.get("content", "")
+                    asyncio.create_task(save_memory(key, msg.get("content", "")))
+    
     conversation_history = [
         msg for msg in conversation_history
         if (now - msg.get("timestamp", 0) < CONVERSATION_TTL) or msg.get("important", False) or msg.get("temporary", False) is False
