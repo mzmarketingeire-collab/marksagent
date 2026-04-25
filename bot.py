@@ -205,7 +205,7 @@ async def call_google(prompt, is_premium_task=False):
         ltm_ctx = "Important context: " + "; ".join(list(long_term_memory.values())[-3:])
         messages.insert(0, {"role": "user", "parts": [{"text": ltm_ctx}]})
     
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
     params = {"key": GOOGLE_AI_KEY}
     
     try:
