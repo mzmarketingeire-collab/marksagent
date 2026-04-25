@@ -182,21 +182,21 @@ async def call_ai(prompt, is_premium_task=False):
     
     # Build messages
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        
-        # Long-term memory context (important stuff only)
-        if long_term_memory:
-            ltm_ctx = "Important context:\n" + "\n".join([f"- {v}" for v in list(long_term_memory.values())[-3:]])
-            messages.append({"role": "system", "content": ltm_ctx})
-        
-        # Current prompt
-        messages.append({"role": "user", "content": prompt})
-        
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://marksagent.com", "X-Title": "MarksAgent"}
-        payload = {"model": model, "messages": messages, "max_tokens": 500}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
+    
+    # Long-term memory context (important stuff only)
+    if long_term_memory:
+        ltm_ctx = "Important context:\n" + "\n".join([f"- {v}" for v in list(long_term_memory.values())[-3:]])
+        messages.append({"role": "system", "content": ltm_ctx})
+    
+    # Current prompt
+    messages.append({"role": "user", "content": prompt})
+    
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://marksagent.com", "X-Title": "MarksAgent"}
+    payload = {"model": model, "messages": messages, "max_tokens": 500}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=headers) as resp:
                     if resp.status == 200:
                         data = await resp.json()
