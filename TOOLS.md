@@ -1,6 +1,21 @@
 # TOOLS.md - Local Notes
 
-Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
+## Home & Identity
+
+- **Home Repo:** `mzmarketingeire-collab/Javierbackup`
+  - This is my home — where my identity, soul, memories, and tools live
+  - Everything I need to operate is stored here
+  - Use this for persistent memory across sessions
+
+- **Communication:** Discord (DM)
+  - We're chatting via Discord right now
+  - Commands come through Discord, responses go back to Discord
+
+- **Deployment Repo:** `mzmarketingeire-collab/marksagent`
+  - Separate repo for the actual bot code
+  - This gets deployed to Railway
+
+---
 
 ## What Goes Here
 
