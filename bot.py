@@ -84,13 +84,22 @@ MODELS = {
  "free_limit": 2000,
  "good_for": ["chat", "writing", "analysis"]
  },
+ "auto": {
+ "id": "openrouter/auto",
+ "name": "OpenRouter Auto",
+ "desc": "OpenRouter picks best model for request",
+ "cost": 0,
+ "priority": -1,  # Highest priority
+ "free_limit": 100,
+ "good_for": ["all"]
+ },
  "haiku": {
- "id": "anthropic/claude-3-haiku", # OpenRouter ID
+ "id": "anthropic/claude-3-haiku",
  "name": "Claude 3 Haiku",
- "desc": "Fast & cheap ($0.0008/1K tokens)",
- "cost": 0.0008, # Cost per 1M tokens
+ "desc": "Fast & cheap",
+ "cost": 0.0008,
  "priority": 4,
- "free_limit": 0, # Not free
+ "free_limit": 0,
  "good_for": ["complex_reasoning", "ghostwriting", "precision"]
  },
  "llama": {
@@ -139,7 +148,7 @@ intents = discord.Intents.default()
 intents.message_content = True # Required to read message content
 client = discord.Client(intents=intents)
 
-current_model = "google" # Default starting model
+current_model = "auto" # Default: OpenRouter Auto picks best model
 memory = {} # Short-term memory cache
 long_term_memory = {} # Placeholder for more persistent memory
 conversation_history = [] # Stores recent chat turns for context
@@ -236,7 +245,7 @@ def get_best_model(task_type="quick_response", force_free=True):
 
     # 1. FIRST: When force_free=True, ONLY try free models (skip ALL paid models)
     if force_free:
-        free_preference = ["google", "gemma", "minimax", "gemini-flash"]
+        free_preference = ["auto", "google", "gemma", "minimax", "gemini-flash"]
         
         for model_key in free_preference:
             if model_key not in MODELS:
@@ -488,6 +497,9 @@ async def handle_message(message):
     # Route to the appropriate API
     if model_key == "google":
         result = await call_google(prompt)
+    elif model_key == "auto":
+        # OpenRouter Auto mode - they pick the best model
+        result = await call_openrouter_auto(prompt)
     elif model_key in ["gemini-flash", "gemma", "haiku", "llama"]:
         # All these use OpenRouter
         model_id = MODELS.get(model_key, {}).get("id", model_key)
@@ -542,3 +554,75 @@ async def send_response(message, content):
             pass  # Give up if we can't even send error
 
 # Update handle_message to use safe send
+
+# === OPENROUTER AUTO MODE ===
+async def call_openrouter_auto(prompt):
+    """Use OpenRouter's auto mode - they pick the best model."""
+    global conversation_history, daily_budget, current_model, free_usage
+
+    if not OPENROUTER_KEY:
+        return {"success": False, "error": "OpenRouter API key not set"}
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://marksagent.github.io",
+        "X-Title": "Mark's Business Bot"
+    }
+    
+    # Build messages with conversation history
+    messages = [{"role": "user", "content": "prompt"}]
+    
+    # Add recent history
+    if conversation_history:
+        recent = conversation_history[-10:]
+        for msg in recent:
+            if msg.get("role") in ["user", "assistant"]:
+                messages.insert(0, {"role": msg["role"], "content": msg.get("content", "")})
+
+    # Use "openrouter/auto" - OpenRouter decides the best model
+    payload = {
+        "model": "openrouter/auto",
+        "messages": messages,
+        "max_tokens": 1500,
+        "routes": {
+            # Tell OpenRouter your preferences
+            "force_provider": "google",  # Prefer Google models first
+            "allow_fallback": True
+        }
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=60) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    
+                    content = (
+                        data.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                    )
+
+                    # Get model info from response
+                    model_used = data.get("model", "openrouter/auto")
+                    
+                    if not content:
+                        return {"success": False, "error": "OpenRouter auto returned empty"}
+
+                    # Update tracking
+                    current_model = model_used
+                    daily_budget["calls"] += 1
+                    
+                    conversation_history.append({"role": "user", "content": prompt, "timestamp": time.time()})
+                    conversation_history.append({"role": "assistant", "content": content, "timestamp": time.time()})
+
+                    return {"success": True, "content": content, "model": model_used, "cost": 0}
+                else:
+                    error_text = await resp.text()
+                    print(f"OpenRouter Auto error: {resp.status} - {error_text}")
+                    return {"success": False, "error": f"OpenRouter error ({resp.status})"}
+    except Exception as e:
+        print(f"Exception in call_openrouter_auto: {str(e)}")
+        return {"success": False, "error": str(e)}
