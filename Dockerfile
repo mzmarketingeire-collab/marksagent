@@ -11,5 +11,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+COPY railway.yaml /app/railway.yaml
 
 CMD python bot.py
