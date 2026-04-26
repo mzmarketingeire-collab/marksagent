@@ -1,9 +1,9 @@
 # USER.md - About Your Human
 
-- **Name:** Luckitup_
-- **What to call them:** (they go by Luckitup_)
+- **Name:** Mark
+- **What to call them:** Mark
 - **Pronouns:** 
-- **Timezone:** 
+- **Timezone:** New Zealand time
 - **Notes:** Chatting via Discord DM
 
 ## Context
