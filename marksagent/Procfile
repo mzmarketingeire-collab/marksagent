@@ -1,0 +1,1 @@
+worker: cd marksagent && python -m bot
